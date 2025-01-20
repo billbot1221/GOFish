@@ -15,7 +15,7 @@ st.markdown("""
     }
     .red-card {
         color: #D40000;
-    }
+    }x
     .black-card {
         color: #000000;
     }
@@ -105,6 +105,31 @@ def check_for_books(hand):
 
     return books
 
+# Check if the game is over and calculate the winner
+def check_for_winner():
+    # Game ends if the deck is empty and all hands are empty
+    if len(st.session_state.deck) == 0 and all(len(player["hand"]) == 0 for player in st.session_state.players):
+        # Calculate scores based on books
+        scores = [(i, len(player["books"])) for i, player in enumerate(st.session_state.players)]
+        scores.sort(key=lambda x: x[1], reverse=True)  # Sort players by the number of books (descending)
+
+        # Find the player(s) with the most books
+        top_score = scores[0][1]
+        winners = [f"Player {i + 1}" for i, score in scores if score == top_score]
+
+        # Build a winner message
+        if len(winners) == 1:
+            winner_message = f"{winners[0]} wins with {top_score} books!"
+        else:
+            winner_message = f"{' and '.join(winners)} tie with {top_score} books!"
+
+        # Log the result and display scores
+        st.session_state.action_log.append(("game", f"🎉 Game Over! {winner_message}"))
+        st.session_state.action_log.append(("game", f"📊 Final Scores: " +
+                                             ", ".join([f"Player {i + 1}: {score} books" for i, score in scores])))
+
+        return True  # Game is over
+    return False  # Game is not over
 
 def handle_bot_turn(bot_idx):
     bot_hand = st.session_state.players[bot_idx]["hand"]
@@ -145,105 +170,36 @@ def handle_bot_turn(bot_idx):
 def go_fish_game():
     st.markdown('<h1 class="game-title">🎣 Go Fish 🎣</h1>', unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        if st.button("🔄 New Game", use_container_width=True):
-            for key in ['deck', 'players', 'current_turn', 'action_log']:
-                if key in st.session_state:
-                    del st.session_state[key]
+    if st.button("🔄 New Game", use_container_width=True):
+        for key in ['deck', 'players', 'current_turn', 'action_log']:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
 
     init_game()
 
-    # Game status section
-    with st.container():
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown(f'<div class="status-box">🎴 Cards in deck: {len(st.session_state.deck)}</div>',
-                        unsafe_allow_html=True)
-        with col2:
-            st.markdown(f'<div class="status-box">👤 Current turn: Player {st.session_state.current_turn + 1}</div>',
-                        unsafe_allow_html=True)
-        with col3:
-            st.markdown(f'<div class="book-display">📚 Your books: {len(st.session_state.players[0]["books"])}</div>',
-                        unsafe_allow_html=True)
-
-    # Display scores for all players
-    st.markdown("### 📊 Scores:")
-    score_cols = st.columns(4)
-    for i, player in enumerate(st.session_state.players):
-        with score_cols[i]:
-            st.markdown(f'<div class="status-box">Player {i + 1}: {len(player["books"])} books</div>',
-                        unsafe_allow_html=True)
-
-    # Display player's hand
-    st.markdown("### Your Hand:")
-    player_hand = st.session_state.players[0]["hand"]
-    if player_hand:
-        cards_html = " ".join(display_card(card) for card in player_hand)
-        st.markdown(f'<div style="margin: 20px 0;">{cards_html}</div>', unsafe_allow_html=True)
-
-    # Action Log in expandable section
-    with st.expander("📜 Game Action Log", expanded=False):
-        if st.session_state.action_log:
+    # Check if the game is over
+    if check_for_winner():
+        st.markdown('<div class="game-over">🎉 Game Over! See action log for results.</div>', unsafe_allow_html=True)
+        with st.expander("📜 Game Action Log", expanded=True):
             for action_type, message in st.session_state.action_log:
                 css_class = "player-action" if action_type == "player" else "bot-action"
                 icon = "👤" if action_type == "player" else "🤖"
                 st.markdown(f'<div class="{css_class}">{icon} {message}</div>', unsafe_allow_html=True)
-        else:
-            st.write("No actions yet")
+        return  # End game here
 
-    # Game controls section
-    if st.session_state.current_turn == 0:
-        col1, col2 = st.columns(2)
-        with col1:
-            target_player = st.selectbox("🎯 Ask which player?", ["Player 2", "Player 3", "Player 4"])
-            target_idx = int(target_player.split()[1]) - 1
+    st.markdown("### Current Status")
+    st.markdown(f"📚 Your Books: {len(st.session_state.players[0]['books'])}")
+    st.markdown("Your Hand:")
+    player_hand = st.session_state.players[0]["hand"]
+    if player_hand:
+        cards_html = " ".join([f"<span>{card[0]}{card[1]}</span>" for card in player_hand])
+        st.markdown(cards_html, unsafe_allow_html=True)
 
-        with col2:
-            if player_hand:
-                rank_to_ask = st.selectbox("🃏 Ask for which rank?",
-                                           list(set(card[0] for card in player_hand)))
+    # Proceed to the next turn
+    st.button("🤖 Next Turn")
+    st.rerun()
 
-        if st.button("Ask for card", use_container_width=True):
-            target_hand = st.session_state.players[target_idx]["hand"]
-            cards_found = []
-
-            action_message = f"You ask Player {target_idx + 1} for {rank_to_ask}s"
-
-            for card in target_hand[:]:
-                if card[0] == rank_to_ask:
-                    cards_found.append(card)
-                    target_hand.remove(card)
-                    player_hand.append(card)
-
-            if cards_found:
-                action_message += f" and receive {len(cards_found)} card(s)!"
-                new_books = check_for_books(player_hand)
-                if new_books:
-                    st.session_state.players[0]["books"].extend(new_books)
-                    action_message += f"\nYou completed {len(new_books)} book(s)!"
-            else:
-                if st.session_state.deck:
-                    drawn_card = st.session_state.deck.pop()
-                    player_hand.append(drawn_card)
-                    action_message += f" - Go fish! You drew {drawn_card[0]}{drawn_card[1]}"
-
-                    new_books = check_for_books(player_hand)
-                    if new_books:
-                        st.session_state.players[0]["books"].extend(new_books)
-                        action_message += f"\nYou completed {len(new_books)} book(s)!"
-                else:
-                    action_message += " - No cards left in the deck!"
-
-            st.session_state.action_log.append(("player", action_message))
-            st.session_state.current_turn = (st.session_state.current_turn + 1) % 4
-            st.rerun()
-
-    else:
-        if st.button("🤖 Continue (Bot's turn)", use_container_width=True):
-            handle_bot_turn(st.session_state.current_turn)
-            st.session_state.current_turn = (st.session_state.current_turn + 1) % 4
-            st.rerun()
 
 
 if __name__ == "__main__":
